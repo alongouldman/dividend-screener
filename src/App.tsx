@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import {
   Alert,
@@ -12,21 +12,26 @@ import {
   Container,
   CssBaseline,
   Divider,
+  IconButton,
   InputAdornment,
   Paper,
+  Snackbar,
   Stack,
   Switch,
   TextField,
   ThemeProvider,
+  Tooltip,
   Toolbar,
   Typography,
   createTheme,
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import InsightsIcon from '@mui/icons-material/Insights';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import {
   DataGrid,
   GridToolbar,
@@ -34,8 +39,8 @@ import {
   type GridRenderCellParams,
   type GridSortModel,
 } from '@mui/x-data-grid';
-import type { FilterConfig, NumericValue, StockData } from './types';
-import { parseExcel } from './utils/parser';
+import type { FilterConfig, NumericValue, StockData, PortfolioItem } from './types';
+import { parseExcel, parsePortfolioCSV } from './utils/parser';
 
 const theme = createTheme({
   palette: {
@@ -90,16 +95,16 @@ const DEFAULT_FILTERS: FilterConfig[] = [
   { metric: 'peRatio', label: 'P/E Ratio', active: true, cutoff: 20, operator: 'lte' },
   { metric: 'pbRatio', label: 'Price/Book', active: false, cutoff: 2, operator: 'lte' },
   { metric: 'roe', label: 'ROE (%)', active: false, cutoff: 10, operator: 'gte' },
-  { metric: 'past5yGrowth', label: 'Past 5Y (%)', active: false, cutoff: 0, operator: 'gte' },
-  { metric: 'est5yGrowth', label: 'Est 5Y (%)', active: false, cutoff: 0, operator: 'gte' },
-  { metric: 'debtEquity', label: 'Debt/Equity', active: false, cutoff: 0.7, operator: 'lte' },
-  { metric: 'chowderRule', label: 'Chowder Rule', active: true, cutoff: 11, operator: 'gte' },
-  { metric: 'roa', label: 'ROA (%)', active: false, cutoff: 5, operator: 'gte' },
+  { metric: 'past5yGrowth', label: 'Past 5Y (%)', active: true, cutoff: 0, operator: 'gte' },
+  { metric: 'est5yGrowth', label: 'Est 5Y (%)', active: true, cutoff: 0, operator: 'gte' },
+  { metric: 'debtEquity', label: 'Debt/Equity', active: true, cutoff: 0.7, operator: 'lte' },
+  { metric: 'chowderRule', label: 'Chowder Rule', active: false, cutoff: 11, operator: 'gte' },
 ];
 
 const FILTERS_STORAGE_KEY = 'screener_filters';
 const MISSING_VALUES_MATCH_STORAGE_KEY = 'screener_missing_values_match';
 const STOCKS_STORAGE_KEY = 'screener_stocks';
+const PORTFOLIO_STORAGE_KEY = 'screener_portfolio';
 const SORT_MODEL_STORAGE_KEY = 'screener_sort_model';
 const DEFAULT_SORT_MODEL: GridSortModel = [{ field: 'name', sort: 'asc' }];
 
@@ -126,6 +131,18 @@ const loadSavedStocks = () => {
     if (!saved) return [];
 
     const parsed = JSON.parse(saved) as StockData[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const loadSavedPortfolio = () => {
+  try {
+    const saved = localStorage.getItem(PORTFOLIO_STORAGE_KEY);
+    if (!saved) return [];
+
+    const parsed = JSON.parse(saved) as PortfolioItem[];
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
@@ -162,11 +179,38 @@ const formatRatio = (value: NumericValue | undefined) =>
   formatMissingValue(value, (numericValue) => numericValue.toFixed(1));
 const formatDecimal = (value: NumericValue | undefined) =>
   formatMissingValue(value, (numericValue) => numericValue.toFixed(2));
+const formatCurrency = (value: number | undefined) =>
+  value !== undefined ? `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '$0.00';
 const getCutoffInputs = (filters: FilterConfig[]) =>
   Object.fromEntries(filters.map((filter) => [filter.metric, String(filter.cutoff)]));
+const escapeSheetCell = (value: string) =>
+  /[\t\r\n"]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+const getRowSheetValues = (row: StockData) => [
+  row.name,
+  row.symbol,
+  formatCurrency(row.portfolioAnnualIncome),
+  row.sector,
+  formatMissingValue(row.marketCap, (numericValue) => `${numericValue.toFixed(1)}B`),
+  formatMissingValue(row.yield, (numericValue) => `${numericValue.toFixed(2)}%`),
+  formatMissingValue(row.years, (numericValue) => String(numericValue)),
+  formatPercent(row.payout),
+  formatPercent(row.growth1yr),
+  formatPercent(row.growth3yr),
+  formatPercent(row.growth5yr),
+  formatPercent(row.growth10yr),
+  formatRatio(row.peRatio),
+  formatRatio(row.pbRatio),
+  formatPercent(row.roe),
+  formatPercent(row.past5yGrowth),
+  formatPercent(row.est5yGrowth),
+  formatDecimal(row.debtEquity),
+  formatRatio(row.chowderRule),
+];
+const formatRowForSheets = (row: StockData) => getRowSheetValues(row).map(escapeSheetCell).join('\t');
 
 export default function App() {
   const [stocks, setStocks] = useState<StockData[]>(loadSavedStocks);
+  const [portfolio, setPortfolio] = useState<PortfolioItem[]>(loadSavedPortfolio);
   const [filters, setFilters] = useState<FilterConfig[]>(loadSavedFilters);
   const [cutoffInputs, setCutoffInputs] = useState<Record<string, string>>(() =>
     getCutoffInputs(loadSavedFilters()),
@@ -175,6 +219,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [sortModel, setSortModel] = useState<GridSortModel>(loadSavedSortModel);
   const [missingValuesMatch, setMissingValuesMatch] = useState(loadSavedMissingValuesMatch);
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filters));
@@ -197,6 +243,15 @@ export default function App() {
     localStorage.setItem(STOCKS_STORAGE_KEY, JSON.stringify(stocks));
   }, [stocks]);
 
+  useEffect(() => {
+    if (portfolio.length === 0) {
+      localStorage.removeItem(PORTFOLIO_STORAGE_KEY);
+      return;
+    }
+
+    localStorage.setItem(PORTFOLIO_STORAGE_KEY, JSON.stringify(portfolio));
+  }, [portfolio]);
+
   const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -218,12 +273,32 @@ export default function App() {
     }
   };
 
+  const handlePortfolioUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const data = await parsePortfolioCSV(file);
+      setPortfolio(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to parse portfolio file');
+    } finally {
+      setLoading(false);
+      event.target.value = '';
+    }
+  };
+
   const handleStartNewFile = () => {
     localStorage.removeItem(STOCKS_STORAGE_KEY);
     localStorage.removeItem(FILTERS_STORAGE_KEY);
     localStorage.removeItem(SORT_MODEL_STORAGE_KEY);
     localStorage.removeItem(MISSING_VALUES_MATCH_STORAGE_KEY);
+    localStorage.removeItem(PORTFOLIO_STORAGE_KEY);
     setStocks([]);
+    setPortfolio([]);
     setError(null);
     setFilters(DEFAULT_FILTERS);
     setCutoffInputs(getCutoffInputs(DEFAULT_FILTERS));
@@ -231,8 +306,24 @@ export default function App() {
     setMissingValuesMatch(false);
   };
 
+  const joinedStocks = useMemo(() => {
+    if (portfolio.length === 0) return stocks;
+
+    const portfolioMap = new Map(
+      portfolio.map((p) => [p.ticker.toUpperCase().trim(), p.annualIncome]),
+    );
+
+    return stocks.map((stock) => {
+      const symbol = stock.symbol.toUpperCase().trim();
+      return {
+        ...stock,
+        portfolioAnnualIncome: portfolioMap.get(symbol) || 0,
+      };
+    });
+  }, [stocks, portfolio]);
+
   const filteredStocks = useMemo(() => {
-    return stocks.filter((stock) => {
+    return joinedStocks.filter((stock) => {
       return filters.every((filter) => {
         if (!filter.active) return true;
         const value = stock[filter.metric];
@@ -240,7 +331,7 @@ export default function App() {
         return filter.operator === 'gte' ? value >= filter.cutoff : value <= filter.cutoff;
       });
     });
-  }, [stocks, filters, missingValuesMatch]);
+  }, [joinedStocks, filters, missingValuesMatch]);
 
   const toggleFilter = (index: number) => {
     setFilters((currentFilters) =>
@@ -274,8 +365,42 @@ export default function App() {
     }));
   };
 
+  const handleCopyRow = useCallback(async (row: StockData) => {
+    try {
+      await navigator.clipboard.writeText(formatRowForSheets(row));
+      setCopyError(null);
+      setCopyMessage(`Copied ${row.symbol} row`);
+    } catch {
+      setCopyMessage(null);
+      setCopyError('Could not copy row. Please allow clipboard access and try again.');
+    }
+  }, []);
+
   const columns = useMemo<GridColDef<StockData>[]>(
     () => [
+      {
+        field: 'copy',
+        headerName: '',
+        width: 54,
+        sortable: false,
+        filterable: false,
+        disableColumnMenu: true,
+        align: 'center',
+        renderCell: (params: GridRenderCellParams<StockData>) => (
+          <Tooltip title="Copy row for Google Sheets">
+            <IconButton
+              aria-label={`Copy ${params.row.symbol} row for Google Sheets`}
+              size="small"
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleCopyRow(params.row);
+              }}
+            >
+              <ContentCopyIcon fontSize="inherit" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
       {
         field: 'name',
         headerName: 'Company',
@@ -296,6 +421,22 @@ export default function App() {
         ),
       },
       {
+        field: 'portfolioAnnualIncome',
+        headerName: 'Annual Income',
+        width: 140,
+        type: 'number',
+        valueFormatter: (value: number | undefined) => formatCurrency(value),
+        renderCell: (params: GridRenderCellParams<StockData, number>) => (
+          <Typography
+            variant="body2"
+            fontWeight={800}
+            color={params.value && params.value > 0 ? 'success.main' : 'text.secondary'}
+          >
+            {formatCurrency(params.value)}
+          </Typography>
+        ),
+      },
+      {
         field: 'sector',
         headerName: 'Sector',
         minWidth: 180,
@@ -307,6 +448,14 @@ export default function App() {
         ),
       },
       {
+        field: 'yield',
+        headerName: 'Yield',
+        width: 110,
+        type: 'number',
+        valueFormatter: (value: number | null | undefined) =>
+            formatMissingValue(value, (numericValue) => `${numericValue.toFixed(2)}%`),
+      },
+      {
         field: 'marketCap',
         headerName: 'Mkt Cap ($B)',
         width: 130,
@@ -314,14 +463,7 @@ export default function App() {
         valueFormatter: (value: number | null | undefined) =>
           formatMissingValue(value, (numericValue) => `${numericValue.toFixed(1)}B`),
       },
-      {
-        field: 'yield',
-        headerName: 'Yield',
-        width: 110,
-        type: 'number',
-        valueFormatter: (value: number | null | undefined) =>
-          formatMissingValue(value, (numericValue) => `${numericValue.toFixed(2)}%`),
-      },
+
       {
         field: 'years',
         headerName: 'Yrs',
@@ -361,7 +503,7 @@ export default function App() {
         valueFormatter: formatRatio,
       },
     ],
-    [],
+    [handleCopyRow],
   );
 
   const uploadControl = (label: string, variant: 'text' | 'contained' = 'contained') => (
@@ -405,9 +547,19 @@ export default function App() {
             <Box sx={{ flexGrow: 1 }} />
             <Stack direction="row" spacing={1} alignItems="center">
               {stocks.length > 0 && (
-                <Button variant="text" startIcon={<CloudUploadIcon />} onClick={handleStartNewFile}>
-                  Upload a new file
-                </Button>
+                <>
+                  <Button
+                    component="label"
+                    variant="text"
+                    startIcon={<AccountBalanceWalletIcon />}
+                  >
+                    {portfolio.length > 0 ? 'Update Portfolio' : 'Upload Portfolio'}
+                    <input type="file" accept=".csv" onChange={handlePortfolioUpload} hidden />
+                  </Button>
+                  <Button variant="text" startIcon={<CloudUploadIcon />} onClick={handleStartNewFile}>
+                    Upload a new file
+                  </Button>
+                </>
               )}
             </Stack>
           </Toolbar>
@@ -418,9 +570,9 @@ export default function App() {
             <Stack alignItems="center" justifyContent="center" spacing={2} sx={{ pt: 10 }}>
               <CircularProgress size={56} thickness={4} />
               <Typography variant="h6" fontWeight={800}>
-                Processing Excel File
+                Processing File
               </Typography>
-              <Typography color="text.secondary">Reading data from the All CCC sheet...</Typography>
+              <Typography color="text.secondary">Reading data...</Typography>
             </Stack>
           )}
 
@@ -444,7 +596,7 @@ export default function App() {
 
           {error && (
             <Alert severity="error" icon={<ErrorOutlineIcon />} sx={{ mb: 3 }}>
-              <Typography fontWeight={800}>Parsing Error</Typography>
+              <Typography fontWeight={800}>Error</Typography>
               {error}
             </Alert>
           )}
@@ -579,6 +731,22 @@ export default function App() {
             </Stack>
           )}
         </Container>
+        <Snackbar
+          open={Boolean(copyMessage)}
+          autoHideDuration={2200}
+          onClose={() => setCopyMessage(null)}
+          message={copyMessage}
+        />
+        <Snackbar
+          open={Boolean(copyError)}
+          autoHideDuration={4000}
+          onClose={() => setCopyError(null)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert severity="error" variant="filled" onClose={() => setCopyError(null)}>
+            {copyError}
+          </Alert>
+        </Snackbar>
       </Box>
     </ThemeProvider>
   );

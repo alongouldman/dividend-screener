@@ -1,5 +1,10 @@
 export type NumericValue = number | null;
 
+export interface PortfolioItem {
+  ticker: string;
+  annualIncome: number;
+}
+
 export interface StockData {
   name: string;
   symbol: string;
@@ -23,7 +28,8 @@ export interface StockData {
   debtEquity: NumericValue;
   chowderRule: NumericValue;
   roa: NumericValue;
-  [key: string]: string | NumericValue;
+  portfolioAnnualIncome?: number;
+  [key: string]: string | NumericValue | number | undefined;
 }
 
 export interface FilterConfig {
