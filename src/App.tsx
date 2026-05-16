@@ -448,29 +448,31 @@ export default function App() {
         ),
       },
       {
-        field: 'yield',
-        headerName: 'Yield',
-        width: 110,
-        type: 'number',
-        valueFormatter: (value: number | null | undefined) =>
-            formatMissingValue(value, (numericValue) => `${numericValue.toFixed(2)}%`),
-      },
-      {
         field: 'marketCap',
         headerName: 'Mkt Cap ($B)',
         width: 130,
         type: 'number',
         valueFormatter: (value: number | null | undefined) =>
-          formatMissingValue(value, (numericValue) => `${numericValue.toFixed(1)}B`),
+            formatMissingValue(value, (numericValue) => `${numericValue.toFixed(1)}B`),
       },
 
-      {
+            {
         field: 'years',
         headerName: 'Yrs',
         width: 90,
         type: 'number',
         valueFormatter: (value: number | null | undefined) =>
           formatMissingValue(value, (numericValue) => String(numericValue)),
+      },
+
+
+      {
+        field: 'yield',
+        headerName: 'Yield',
+        width: 110,
+        type: 'number',
+        valueFormatter: (value: number | null | undefined) =>
+            formatMissingValue(value, (numericValue) => `${numericValue.toFixed(2)}%`),
       },
       {
         field: 'payout',
