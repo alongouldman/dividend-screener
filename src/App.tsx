@@ -218,14 +218,14 @@ const getRowSheetValues = (row: StockData) => [
   row.symbol,
   formatCurrency(row.portfolioAnnualIncome),
   row.sector,
-  formatMissingValue(row.marketCap, (numericValue) => `${numericValue.toFixed(1)}B`),
+  formatMissingValue(row.marketCap, (numericValue) => `${numericValue.toFixed(1)}`),
   formatMissingValue(row.yield, (numericValue) => `${numericValue.toFixed(2)}%`),
   formatMissingValue(row.years, (numericValue) => String(numericValue)),
-  formatPercent(row.payout),
   formatPercent(row.growth1yr),
   formatPercent(row.growth3yr),
   formatPercent(row.growth5yr),
   formatPercent(row.growth10yr),
+  formatPercent(row.payout),
   formatRatio(row.peRatio),
   formatRatio(row.pbRatio),
   formatPercent(row.roe),
@@ -535,17 +535,6 @@ export default function App() {
         valueFormatter: (value: number | null | undefined) =>
             formatMissingValue(value, (numericValue) => `${numericValue.toFixed(1)}B`),
       },
-
-            {
-        field: 'years',
-        headerName: 'Yrs',
-        width: 90,
-        type: 'number',
-        valueFormatter: (value: number | null | undefined) =>
-          formatMissingValue(value, (numericValue) => String(numericValue)),
-      },
-
-
       {
         field: 'yield',
         headerName: 'Yield',
@@ -555,12 +544,14 @@ export default function App() {
             formatMissingValue(value, (numericValue) => `${numericValue.toFixed(2)}%`),
       },
       {
-        field: 'payout',
-        headerName: 'Payout',
-        width: 110,
+        field: 'years',
+        headerName: 'Yrs',
+        width: 90,
         type: 'number',
-        valueFormatter: formatPercent,
+        valueFormatter: (value: number | null | undefined) =>
+            formatMissingValue(value, (numericValue) => String(numericValue)),
       },
+
       { field: 'growth1yr', headerName: '1Y DGR', width: 110, type: 'number', valueFormatter: formatPercent },
       { field: 'growth3yr', headerName: '3Y DGR', width: 110, type: 'number', valueFormatter: formatPercent },
       {
@@ -571,6 +562,13 @@ export default function App() {
         valueFormatter: formatPercent,
       },
       { field: 'growth10yr', headerName: '10Y DGR', width: 120, type: 'number', valueFormatter: formatPercent },
+      {
+        field: 'payout',
+        headerName: 'Payout',
+        width: 110,
+        type: 'number',
+        valueFormatter: formatPercent,
+      },
       { field: 'peRatio', headerName: 'Price/Earning', width: 90, type: 'number', valueFormatter: formatRatio },
       { field: 'pbRatio', headerName: 'P/B', width: 90, type: 'number', valueFormatter: formatRatio },
       { field: 'roe', headerName: 'ROE', width: 100, type: 'number', valueFormatter: formatPercent },
